@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GmailService } from '@/lib/gmail';
 
+export const dynamic = 'force-dynamic';
+
 // Mock data for fallback
 const mockEmails = [
   {

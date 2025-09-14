@@ -1,13 +1,25 @@
 import { google } from 'googleapis';
+import { OAuth2Client } from 'google-auth-library';
+
+export interface EmailData {
+  id: string;
+  subject: string;
+  from: string;
+  snippet: string;
+  date: string;
+  isRead: boolean;
+  importance: 'high' | 'medium' | 'low';
+  labels: string[];
+}
 
 export class GmailService {
-  private oauth2Client: any;
+  private oauth2Client: OAuth2Client;
 
   constructor() {
-    this.oauth2Client = new google.auth.OAuth2(
+    this.oauth2Client = new OAuth2Client(
       process.env.GMAIL_CLIENT_ID,
       process.env.GMAIL_CLIENT_SECRET,
-      'https://developers.google.com/oauthplayground'
+      'urn:ietf:wg:oauth:2.0:oob'
     );
 
     this.oauth2Client.setCredentials({
@@ -15,174 +27,133 @@ export class GmailService {
     });
   }
 
-  async getEmails(maxResults: number = 50) {
+  async getEmails(maxResults: number = 50): Promise<EmailData[]> {
     try {
-      console.log('Initializing Gmail OAuth2 client...');
-      
-      // Refresh the access token
-      const { credentials } = await this.oauth2Client.refreshAccessToken();
-      console.log('Access token refreshed successfully');
-
       const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
-      
-      console.log('Fetching Gmail emails...');
-      
-      // Get list of messages
-      const messagesResponse = await gmail.users.messages.list({
+
+      const response = await gmail.users.messages.list({
         userId: 'me',
-        maxResults: maxResults,
+        maxResults,
         q: 'in:inbox',
       });
 
-      const messages = messagesResponse.data.messages || [];
-      console.log(`Found ${messages.length} messages`);
+      const messages = response.data.messages || [];
+      const emails: EmailData[] = [];
 
-      // Get detailed information for each message
-      const emailPromises = messages.map(async (message) => {
-        const messageDetail = await gmail.users.messages.get({
-          userId: 'me',
-          id: message.id!,
-          format: 'full',
-        });
+      for (const message of messages) {
+        if (!message.id) continue;
 
-        const headers = messageDetail.data.payload?.headers || [];
-        const subject = headers.find(h => h.name === 'Subject')?.value || 'No Subject';
-        const from = headers.find(h => h.name === 'From')?.value || 'Unknown Sender';
-        const date = headers.find(h => h.name === 'Date')?.value || new Date().toISOString();
+        try {
+          const messageData = await gmail.users.messages.get({
+            userId: 'me',
+            id: message.id,
+          });
 
-        return {
-          id: message.id!,
-          subject,
-          from,
-          snippet: messageDetail.data.snippet || '',
-          date: new Date(date).toISOString(),
-          isRead: !messageDetail.data.labelIds?.includes('UNREAD'),
-          importance: this.calculateImportance(subject, from),
-          labels: messageDetail.data.labelIds || [],
-        };
-      });
+          const headers = messageData.data.payload?.headers || [];
+          const subjectHeader = headers.find(h => h.name === 'Subject');
+          const fromHeader = headers.find(h => h.name === 'From');
+          const dateHeader = headers.find(h => h.name === 'Date');
 
-      const emails = await Promise.all(emailPromises);
-      console.log(`Successfully processed ${emails.length} emails`);
-      
-      return emails;
-    } catch (error: any) {
-      console.error('Gmail API Error:', {
-        message: error.message,
-        code: error.code,
-        status: error.status
-      });
-      
-      // Provide more specific error messages
-      let errorMessage = error.message;
-      if (error.message === 'unauthorized_client') {
-        errorMessage = 'Gmail app not authorized. Please check: 1) OAuth consent screen is configured 2) Your email is added to test users 3) Redirect URI matches exactly';
-      } else if (error.message === 'invalid_client') {
-        errorMessage = 'Invalid Gmail Client ID. Please verify it ends with .apps.googleusercontent.com';
-      } else if (error.message === 'invalid_grant') {
-        errorMessage = 'Refresh token expired. Please re-authorize your app in Google OAuth Playground';
-      }
-      
-      throw new Error(`Gmail API authentication failed: ${errorMessage}`);
-    }
-  }
+          const email: EmailData = {
+            id: message.id,
+            subject: subjectHeader?.value || 'No Subject',
+            from: fromHeader?.value || 'Unknown Sender',
+            snippet: messageData.data.snippet || '',
+            date: dateHeader?.value ? new Date(dateHeader.value).toISOString() : new Date().toISOString(),
+            isRead: !messageData.data.labelIds?.includes('UNREAD'),
+            importance: this.determineImportance(messageData.data.labelIds || []),
+            labels: messageData.data.labelIds || [],
+          };
 
-  async getEmailDetails(emailId: string) {
-    try {
-      const { credentials } = await this.oauth2Client.refreshAccessToken();
-      const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
-
-      const messageDetail = await gmail.users.messages.get({
-        userId: 'me',
-        id: emailId,
-        format: 'full',
-      });
-
-      const headers = messageDetail.data.payload?.headers || [];
-      const subject = headers.find(h => h.name === 'Subject')?.value || 'No Subject';
-      const from = headers.find(h => h.name === 'From')?.value || 'Unknown Sender';
-      const date = headers.find(h => h.name === 'Date')?.value || new Date().toISOString();
-
-      // Extract email body
-      let fullBody = '';
-      const payload = messageDetail.data.payload;
-      
-      if (payload?.body?.data) {
-        fullBody = Buffer.from(payload.body.data, 'base64').toString('utf-8');
-      } else if (payload?.parts) {
-        // Handle multipart messages
-        for (const part of payload.parts) {
-          if (part.mimeType === 'text/plain' && part.body?.data) {
-            fullBody += Buffer.from(part.body.data, 'base64').toString('utf-8');
-          }
+          emails.push(email);
+        } catch (messageError) {
+          console.error(`Error fetching message ${message.id}:`, messageError);
+          continue;
         }
       }
 
-      return {
-        id: emailId,
-        subject,
-        from,
-        snippet: messageDetail.data.snippet || '',
-        fullBody: fullBody || messageDetail.data.snippet || '',
-        date: new Date(date).toISOString(),
-        isRead: !messageDetail.data.labelIds?.includes('UNREAD'),
-        importance: this.calculateImportance(subject, from),
-        labels: messageDetail.data.labelIds || [],
-      };
-    } catch (error: any) {
-      console.error('Gmail Email Details Error:', error);
-      throw new Error(`Failed to fetch email details: ${error.message}`);
+      return emails;
+    } catch (error) {
+      console.error('Gmail API Error:', error);
+      throw new Error(`Failed to fetch emails: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  async sendReply(emailId: string, to: string, subject: string, body: string) {
+  async getEmailDetails(emailId: string): Promise<EmailData> {
     try {
-      const { credentials } = await this.oauth2Client.refreshAccessToken();
       const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
 
-      // Create the email message
+      const messageData = await gmail.users.messages.get({
+        userId: 'me',
+        id: emailId,
+      });
+
+      const headers = messageData.data.payload?.headers || [];
+      const subjectHeader = headers.find(h => h.name === 'Subject');
+      const fromHeader = headers.find(h => h.name === 'From');
+      const dateHeader = headers.find(h => h.name === 'Date');
+
+      const email: EmailData = {
+        id: emailId,
+        subject: subjectHeader?.value || 'No Subject',
+        from: fromHeader?.value || 'Unknown Sender',
+        snippet: messageData.data.snippet || '',
+        date: dateHeader?.value ? new Date(dateHeader.value).toISOString() : new Date().toISOString(),
+        isRead: !messageData.data.labelIds?.includes('UNREAD'),
+        importance: this.determineImportance(messageData.data.labelIds || []),
+        labels: messageData.data.labelIds || [],
+      };
+
+      return email;
+    } catch (error) {
+      console.error('Gmail API Error:', error);
+      throw new Error(`Failed to fetch email details: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  async sendReply(emailId: string, to: string, subject: string, body: string): Promise<{ id: string }> {
+    try {
+      const gmail = google.gmail({ version: 'v1', auth: this.oauth2Client });
+
+      // Create the email content
       const email = [
         `To: ${to}`,
         `Subject: ${subject}`,
+        `In-Reply-To: ${emailId}`,
+        `References: ${emailId}`,
         '',
         body
       ].join('\n');
 
-      // Encode the email in base64
-      const encodedEmail = Buffer.from(email).toString('base64').replace(/\+/g, '-').replace(/\//g, '_');
+      // Encode the email in base64url format
+      const encodedEmail = Buffer.from(email)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
 
       const response = await gmail.users.messages.send({
         userId: 'me',
         requestBody: {
           raw: encodedEmail,
-          threadId: emailId, // This will group the reply with the original email
+          threadId: emailId,
         },
       });
 
-      console.log('Reply sent successfully:', response.data.id);
-      return response.data;
-    } catch (error: any) {
+      return { id: response.data.id || '' };
+    } catch (error) {
       console.error('Gmail Send Reply Error:', error);
-      throw new Error(`Failed to send reply: ${error.message}`);
+      throw new Error(`Failed to send reply: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  private calculateImportance(subject: string, from: string): 'high' | 'medium' | 'low' {
-    const urgentKeywords = ['urgent', 'asap', 'important', 'critical', 'emergency'];
-    const mediumKeywords = ['meeting', 'deadline', 'reminder', 'action required'];
-    
-    const subjectLower = subject.toLowerCase();
-    const fromLower = from.toLowerCase();
-    
-    if (urgentKeywords.some(keyword => subjectLower.includes(keyword))) {
+  private determineImportance(labels: string[]): 'high' | 'medium' | 'low' {
+    if (labels.includes('IMPORTANT') || labels.includes('CATEGORY_PRIMARY')) {
       return 'high';
     }
-    
-    if (mediumKeywords.some(keyword => subjectLower.includes(keyword)) || 
-        fromLower.includes('noreply') || fromLower.includes('no-reply')) {
-      return 'medium';
+    if (labels.includes('CATEGORY_SOCIAL') || labels.includes('CATEGORY_PROMOTIONS')) {
+      return 'low';
     }
-    
-    return 'low';
+    return 'medium';
   }
 }
