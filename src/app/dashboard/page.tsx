@@ -1,10 +1,31 @@
 import DashboardNavbar from "@/components/dashboard-navbar";
 import { InfoIcon, UserCircle, Mail, Calendar, Wifi, ArrowRight } from "lucide-react";
 import { redirect } from "next/navigation";
-import { createClient } from "../../../supabase/server";
+import { createClient } from "@/utils/supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
+
+async function getDashboardStats() {
+  try {
+    const response = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/api/dashboard/stats`, {
+      cache: 'no-store'
+    });
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (error) {
+    console.error('Failed to fetch dashboard stats:', error);
+  }
+  
+  // Return default stats if API fails
+  return {
+    unreadMessages: 0,
+    pendingTasks: 0,
+    connectedDevices: 0,
+    todayEvents: 0
+  };
+}
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -16,6 +37,8 @@ export default async function Dashboard() {
   if (!user) {
     return redirect("/sign-in");
   }
+
+  const stats = await getDashboardStats();
 
   const appCards = [
     {
@@ -80,6 +103,29 @@ export default async function Dashboard() {
             </div>
           </section>
 
+          {/* Quick Stats */}
+          <section className="bg-white rounded-xl p-6 border shadow-sm">
+            <h3 className="text-lg font-semibold mb-4">Quick Overview</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="text-center p-4 bg-blue-50 rounded-lg">
+                <div className="text-2xl font-bold text-blue-600">{stats.unreadMessages}</div>
+                <div className="text-sm text-blue-600">Unread Messages</div>
+              </div>
+              <div className="text-center p-4 bg-green-50 rounded-lg">
+                <div className="text-2xl font-bold text-green-600">{stats.pendingTasks}</div>
+                <div className="text-sm text-green-600">Pending Tasks</div>
+              </div>
+              <div className="text-center p-4 bg-purple-50 rounded-lg">
+                <div className="text-2xl font-bold text-purple-600">{stats.connectedDevices}</div>
+                <div className="text-sm text-purple-600">Connected Devices</div>
+              </div>
+              <div className="text-center p-4 bg-orange-50 rounded-lg">
+                <div className="text-2xl font-bold text-orange-600">{stats.todayEvents}</div>
+                <div className="text-sm text-orange-600">Today's Events</div>
+              </div>
+            </div>
+          </section>
+
           {/* App Navigation Cards */}
           <section>
             <h3 className="text-xl font-semibold mb-6">Your Apps</h3>
@@ -109,29 +155,6 @@ export default async function Dashboard() {
                   </CardContent>
                 </Card>
               ))}
-            </div>
-          </section>
-
-          {/* Quick Stats */}
-          <section className="bg-white rounded-xl p-6 border shadow-sm">
-            <h3 className="text-lg font-semibold mb-4">Quick Overview</h3>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 bg-blue-50 rounded-lg">
-                <div className="text-2xl font-bold text-blue-600">0</div>
-                <div className="text-sm text-blue-600">Unread Messages</div>
-              </div>
-              <div className="text-center p-4 bg-green-50 rounded-lg">
-                <div className="text-2xl font-bold text-green-600">0</div>
-                <div className="text-sm text-green-600">Pending Tasks</div>
-              </div>
-              <div className="text-center p-4 bg-purple-50 rounded-lg">
-                <div className="text-2xl font-bold text-purple-600">0</div>
-                <div className="text-sm text-purple-600">Connected Devices</div>
-              </div>
-              <div className="text-center p-4 bg-orange-50 rounded-lg">
-                <div className="text-2xl font-bold text-orange-600">0</div>
-                <div className="text-sm text-orange-600">Today's Events</div>
-              </div>
             </div>
           </section>
         </div>
