@@ -1,8 +1,8 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+import { createServerClient } from '@supabase/ssr'
+import { cookies } from 'next/headers'
 
-export const createClient = async () => {
-  const cookieStore = cookies();
+export async function createClient() {
+  const cookieStore = await cookies()
 
   return createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -10,16 +10,20 @@ export const createClient = async () => {
     {
       cookies: {
         getAll() {
-          return cookieStore.getAll().map(({ name, value }) => ({
-            name,
-            value,
-          }));
+          return cookieStore.getAll()
         },
         setAll(cookiesToSet) {
-          // Don't attempt to set cookies in read-only contexts
-          // This prevents the "Cookies can only be modified in a Server Action or Route Handler" error
+          try {
+            cookiesToSet.forEach(({ name, value, options }) =>
+              cookieStore.set(name, value, options)
+            )
+          } catch {
+            // The `setAll` method was called from a Server Component.
+            // This can be ignored if you have middleware refreshing
+            // user sessions.
+          }
         },
       },
     }
-  );
-};
+  )
+}

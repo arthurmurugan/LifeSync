@@ -3,54 +3,64 @@ import { ArrowUpRight, Check } from 'lucide-react';
 
 export default function Hero() {
   return (
-    <div className="relative overflow-hidden bg-white">
-      {/* Background gradient */}
-      <div className="absolute inset-0 bg-gradient-to-br from-blue-50 via-white to-purple-50 opacity-70" />
+    <div className="relative overflow-hidden min-h-screen flex items-center">
+      {/* YouTube Video Background */}
+      <div className="absolute inset-0 w-full h-full">
+        <iframe
+          className="absolute top-1/2 left-1/2 w-[177.77777778vh] h-[56.25vw] min-h-full min-w-full transform -translate-x-1/2 -translate-y-1/2"
+          src="https://www.youtube.com/embed/YCBHgTfe56k?autoplay=1&mute=1&loop=1&playlist=YCBHgTfe56k&controls=0&showinfo=0&rel=0&iv_load_policy=3&modestbranding=1&disablekb=1&fs=0&cc_load_policy=0&playsinline=1&enablejsapi=0"
+          title="Background Video"
+          frameBorder="0"
+          allow="autoplay; encrypted-media"
+          allowFullScreen={false}
+        />
+        {/* Dark overlay for better text readability */}
+        <div className="absolute inset-0 bg-black bg-opacity-50"></div>
+      </div>
       
-      <div className="relative pt-24 pb-32 sm:pt-32 sm:pb-40">
+      <div className="relative z-10 pt-24 pb-32 sm:pt-32 sm:pb-40 w-full">
         <div className="container mx-auto px-4">
           <div className="text-center max-w-4xl mx-auto">
-            <h1 className="text-5xl sm:text-6xl font-bold text-gray-900 mb-8 tracking-tight">
-              Build{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-purple-600">
-                Faster
+            <h1 className="text-5xl sm:text-6xl font-bold text-white mb-8 tracking-tight">
+              Welcome to{" "}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-purple-400">
+                LifeSync
               </span>
-              {" "}with Our Next-Gen Platform
             </h1>
             
-            <p className="text-xl text-gray-600 mb-12 max-w-2xl mx-auto leading-relaxed">
-              Empower your team with our cutting-edge solution. Join industry leaders who've already transformed their workflow.
+            <p className="text-xl text-gray-200 mb-12 max-w-2xl mx-auto leading-relaxed">
+              Your personal productivity hub that seamlessly integrates tasks, messages, schedules, and smart home controls in one intelligent dashboard.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
               <Link
                 href="/dashboard"
-                className="inline-flex items-center px-8 py-4 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-lg font-medium"
+                className="inline-flex items-center px-8 py-4 text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors text-lg font-medium shadow-lg"
               >
-                Get Started Free
+                Start Your Journey
                 <ArrowUpRight className="ml-2 w-5 h-5" />
               </Link>
               
               <Link
-                href="#pricing"
-                className="inline-flex items-center px-8 py-4 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors text-lg font-medium"
+                href="/tasks"
+                className="inline-flex items-center px-8 py-4 text-white bg-white bg-opacity-20 backdrop-blur-sm rounded-lg hover:bg-opacity-30 transition-colors text-lg font-medium border border-white border-opacity-30"
               >
-                View Pricing
+                Explore Features
               </Link>
             </div>
 
-            <div className="mt-16 flex flex-col sm:flex-row items-center justify-center gap-8 text-sm text-gray-600">
+            <div className="mt-16 flex flex-col sm:flex-row items-center justify-center gap-8 text-sm text-gray-300">
               <div className="flex items-center gap-2">
-                <Check className="w-5 h-5 text-green-500" />
-                <span>No credit card required</span>
+                <Check className="w-5 h-5 text-green-400" />
+                <span>AI-Powered Integration</span>
               </div>
               <div className="flex items-center gap-2">
-                <Check className="w-5 h-5 text-green-500" />
-                <span>14-day free trial</span>
+                <Check className="w-5 h-5 text-green-400" />
+                <span>Smart Home Controls</span>
               </div>
               <div className="flex items-center gap-2">
-                <Check className="w-5 h-5 text-green-500" />
-                <span>Cancel anytime</span>
+                <Check className="w-5 h-5 text-green-400" />
+                <span>Unified Dashboard</span>
               </div>
             </div>
           </div>

@@ -1,31 +1,10 @@
 import DashboardNavbar from "@/components/dashboard-navbar";
 import { InfoIcon, UserCircle, Mail, Calendar, Wifi, ArrowRight } from "lucide-react";
 import { redirect } from "next/navigation";
-import { createClient } from "@/utils/supabase/server";
+import { createClient } from "../../../supabase/server";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import Link from "next/link";
-
-async function getDashboardStats() {
-  try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'}/api/dashboard/stats`, {
-      cache: 'no-store'
-    });
-    if (response.ok) {
-      return await response.json();
-    }
-  } catch (error) {
-    console.error('Failed to fetch dashboard stats:', error);
-  }
-  
-  // Return default stats if API fails
-  return {
-    unreadMessages: 0,
-    pendingTasks: 0,
-    connectedDevices: 0,
-    todayEvents: 0
-  };
-}
 
 export default async function Dashboard() {
   const supabase = await createClient();
@@ -38,7 +17,13 @@ export default async function Dashboard() {
     return redirect("/sign-in");
   }
 
-  const stats = await getDashboardStats();
+  // Default stats - remove API call for now
+  const stats = {
+    unreadMessages: 12,
+    pendingTasks: 8,
+    connectedDevices: 5,
+    todayEvents: 3
+  };
 
   const appCards = [
     {

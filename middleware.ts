@@ -33,19 +33,30 @@ export async function middleware(req: NextRequest) {
     console.error('Auth session error:', error)
   }
 
+  // Protect dashboard routes
+  if (req.nextUrl.pathname.startsWith('/dashboard')) {
+    if (!session) {
+      return NextResponse.redirect(new URL('/sign-in', req.url))
+    }
+  }
+
+  // Redirect authenticated users away from auth pages
+  if (session && (req.nextUrl.pathname.startsWith('/sign-in') || req.nextUrl.pathname.startsWith('/sign-up'))) {
+    return NextResponse.redirect(new URL('/dashboard', req.url))
+  }
+
   return res
 }
 
 export const config = {
   matcher: [
     /*
-     * Match all request paths except:
+     * Match all request paths except for the ones starting with:
      * - _next/static (static files)
      * - _next/image (image optimization files)
      * - favicon.ico (favicon file)
-     * - images - .svg, .png, .jpg, .jpeg, .gif, .webp
-     * Feel free to modify this pattern to include more paths.
+     * - public (public files)
      */
-    "/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)",
+    '/((?!_next/static|_next/image|favicon.ico|public|api).*)',
   ],
-};
+}
