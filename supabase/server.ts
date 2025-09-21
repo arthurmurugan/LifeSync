@@ -16,9 +16,8 @@ export const createClient = async () => {
           }));
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => {
-            cookieStore.set(name, value, options);
-          });
+          // Don't attempt to set cookies in read-only contexts
+          // This prevents the "Cookies can only be modified in a Server Action or Route Handler" error
         },
       },
     }
