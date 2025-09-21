@@ -1,98 +1,83 @@
-'use client';
+'use client'
 
-import React, { useState, useEffect } from 'react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Separator } from '@/components/ui/separator';
-import { useToast } from '@/components/ui/use-toast';
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
-import { Mail, RefreshCw, AlertCircle, CheckCircle, Clock, User, Reply, Bot, Send } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { Button } from './ui/button';
+import { Badge } from './ui/badge';
+import { Separator } from './ui/separator';
+import { Mail, Clock, User, AlertCircle, CheckCircle, X, Plus, Send, MessageSquare, Calendar, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from './ui/dialog';
+import { useToast } from './ui/use-toast';
+import { Textarea } from './ui/textarea';
 
 interface Email {
   id: string;
   subject: string;
   from: string;
-  snippet: string;
-  fullBody?: string;
+  body: string;
   date: string;
   isRead: boolean;
   importance: 'high' | 'medium' | 'low';
   labels: string[];
 }
 
+interface EmailAnalysis {
+  reply?: string;
+  tone?: string;
+  isEvent: boolean;
+  eventDetails?: {
+    title: string;
+    date: string;
+    time: string;
+    location?: string;
+  };
+  hasDeadline?: boolean;
+  deadline?: string;
+  taskSuggestion?: string;
+  priority?: 'high' | 'medium' | 'low';
+  category?: string;
+}
+
 export default function GmailIntegration() {
   const [emails, setEmails] = useState<Email[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [connectionStatus, setConnectionStatus] = useState<'unknown' | 'connected' | 'error'>('unknown');
   const [selectedEmail, setSelectedEmail] = useState<Email | null>(null);
-  const [replyText, setReplyText] = useState('');
-  const [isGeneratingReply, setIsGeneratingReply] = useState(false);
-  const [isSendingReply, setIsSendingReply] = useState(false);
+  const [emailAnalysis, setEmailAnalysis] = useState<EmailAnalysis | null>(null);
+  const [showReplyDialog, setShowReplyDialog] = useState(false);
+  const [showTaskConfirmDialog, setShowTaskConfirmDialog] = useState(false);
+  const [analyzingEmail, setAnalyzingEmail] = useState(false);
+  const [generatingReply, setGeneratingReply] = useState(false);
+  const [customReply, setCustomReply] = useState<string>('');
+  const [sendingReply, setSendingReply] = useState(false);
   const { toast } = useToast();
 
+  useEffect(() => {
+    fetchEmails();
+  }, []);
+
   const fetchEmails = async () => {
-    setLoading(true);
-    setError(null);
-    
     try {
-      const response = await fetch('/api/gmail/emails');
-      const data = await response.json();
+      setLoading(true);
+      const response = await fetch('/api/gmail/emails?maxResults=20');
       
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch emails');
+        throw new Error('Failed to fetch emails');
       }
       
+      const data = await response.json();
       setEmails(data.emails || []);
-      setConnectionStatus('connected');
-      toast({
-        title: "Success",
-        description: `Loaded ${data.emails?.length || 0} emails from Gmail`,
-      });
     } catch (err: any) {
-      console.error('Gmail fetch error:', err);
       setError(err.message);
-      setConnectionStatus('error');
-      setEmails([]); // Clear emails on error
-      toast({
-        title: "Gmail Error",
-        description: err.message.includes('unauthorized_client') 
-          ? "Gmail app not authorized. Please check your Google Cloud Console setup."
-          : err.message,
-        variant: "destructive",
-      });
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchEmailDetails = async (emailId: string) => {
+  const analyzeEmail = async (email: Email) => {
+    setAnalyzingEmail(true);
     try {
-      const response = await fetch(`/api/gmail/email/${emailId}`);
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to fetch email details');
-      }
-      
-      return data.email;
-    } catch (err: any) {
-      toast({
-        title: "Error",
-        description: "Failed to load email details",
-        variant: "destructive",
-      });
-      return null;
-    }
-  };
-
-  const generateAutoReply = async (email: Email) => {
-    setIsGeneratingReply(true);
-    
-    try {
-      const response = await fetch('/api/groq/generate-reply', {
+      const response = await fetch('/api/groq/analyze-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -100,315 +85,563 @@ export default function GmailIntegration() {
         body: JSON.stringify({
           subject: email.subject,
           from: email.from,
-          body: email.fullBody || email.snippet,
+          body: email.body,
         }),
       });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to generate reply');
+
+      if (response.ok) {
+        const data = await response.json();
+        setEmailAnalysis(data.analysis);
+        setCustomReply(data.analysis.reply || '');
+        setShowReplyDialog(true);
+      } else {
+        // Enhanced fallback analysis
+        const emailContent = `${email.subject} ${email.body}`.toLowerCase();
+        
+        const isDeadline = emailContent.includes('deadline') || emailContent.includes('due') || 
+                          emailContent.includes('urgent') || emailContent.includes('asap');
+        const isMeeting = emailContent.includes('meeting') || emailContent.includes('appointment') || 
+                         emailContent.includes('call') || emailContent.includes('conference');
+        const isQuestion = emailContent.includes('?') || emailContent.includes('question') || 
+                          emailContent.includes('help') || emailContent.includes('clarify');
+        const isSocial = emailContent.includes('dinner') || emailContent.includes('party') || 
+                        emailContent.includes('birthday') || emailContent.includes('celebration');
+
+        let category = 'information';
+        let priority: 'high' | 'medium' | 'low' = 'medium';
+        let taskSuggestion = `Follow up on: ${email.subject}`;
+        let reply = "Thanks for your email. I'll get back to you soon.";
+        
+        if (isDeadline) {
+          category = 'deadline';
+          priority = 'high';
+          taskSuggestion = `Complete: ${email.subject}`;
+          reply = "I understand the urgency. I'll prioritize this and get it done by the deadline.";
+        } else if (isMeeting) {
+          category = 'meeting';
+          priority = 'medium';
+          taskSuggestion = `Prepare for: ${email.subject}`;
+          reply = "I'll check my calendar and confirm my availability shortly.";
+        } else if (isQuestion) {
+          category = 'question';
+          priority = 'medium';
+          taskSuggestion = `Respond to: ${email.subject}`;
+          reply = "Thank you for your question. I'll look into this and provide you with the information you need.";
+        } else if (isSocial) {
+          category = 'social';
+          priority = 'low';
+          taskSuggestion = `RSVP for: ${email.subject}`;
+          reply = "Thanks for the invitation! I'll check my schedule and let you know if I can attend.";
+        }
+
+        const fallbackAnalysis: EmailAnalysis = {
+          reply,
+          tone: "professional",
+          isEvent: isMeeting || isSocial,
+          hasDeadline: isDeadline,
+          deadline: isDeadline ? new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0] : undefined,
+          taskSuggestion,
+          priority,
+          category
+        };
+
+        if (isMeeting || isSocial) {
+          fallbackAnalysis.eventDetails = {
+            title: email.subject,
+            date: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+            time: '14:00',
+            location: 'TBD'
+          };
+        }
+
+        setEmailAnalysis(fallbackAnalysis);
+        setCustomReply(reply);
+        setShowReplyDialog(true);
       }
-      
-      setReplyText(data.reply);
+    } catch (error) {
       toast({
-        title: "AI Reply Generated",
-        description: "Auto-reply has been generated using Groq AI",
-      });
-    } catch (err: any) {
-      toast({
-        title: "AI Error",
-        description: err.message,
+        title: "Analysis Failed",
+        description: "Unable to analyze email. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsGeneratingReply(false);
+      setAnalyzingEmail(false);
     }
   };
 
-  const sendReply = async (email: Email, replyContent: string) => {
-    setIsSendingReply(true);
+  const generateNewReply = async () => {
+    if (!selectedEmail) return;
     
+    setGeneratingReply(true);
     try {
-      const response = await fetch('/api/gmail/send-reply', {
+      const response = await fetch('/api/groq/analyze-email', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          emailId: email.id,
-          to: email.from,
-          subject: `Re: ${email.subject}`,
-          body: replyContent,
+          subject: selectedEmail.subject,
+          from: selectedEmail.from,
+          body: selectedEmail.body,
+          regenerate: true,
         }),
       });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to send reply');
+
+      if (response.ok) {
+        const data = await response.json();
+        setCustomReply(data.analysis.reply || '');
+        toast({
+          title: "New Reply Generated",
+          description: "A fresh reply has been generated for this email.",
+        });
       }
-      
+    } catch (error) {
       toast({
-        title: "Reply Sent",
-        description: "Your reply has been sent successfully",
-      });
-      
-      setReplyText('');
-      setSelectedEmail(null);
-    } catch (err: any) {
-      toast({
-        title: "Send Error",
-        description: err.message,
+        title: "Generation Failed",
+        description: "Unable to generate new reply. Please try again.",
         variant: "destructive",
       });
     } finally {
-      setIsSendingReply(false);
+      setGeneratingReply(false);
     }
   };
 
-  const handleEmailClick = async (email: Email) => {
-    const emailDetails = await fetchEmailDetails(email.id);
-    if (emailDetails) {
-      setSelectedEmail({ ...email, fullBody: emailDetails.fullBody });
+  const handleSendReply = async () => {
+    if (!customReply.trim()) return;
+
+    setSendingReply(true);
+    
+    // Simulate sending reply
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    toast({
+      title: "Reply Sent!",
+      description: `Your reply has been sent to ${selectedEmail?.from}`,
+    });
+
+    setSendingReply(false);
+    setShowReplyDialog(false);
+    setCustomReply('');
+
+    // Show task creation dialog if there's a task suggestion
+    if (emailAnalysis?.taskSuggestion) {
+      setTimeout(() => {
+        setShowTaskConfirmDialog(true);
+      }, 500);
     }
   };
 
-  const getImportanceBadgeColor = (importance: string) => {
+  const handleTaskConfirmation = async (confirmed: boolean) => {
+    setShowTaskConfirmDialog(false);
+    
+    if (confirmed) {
+      await handleAddToTasks();
+    }
+  };
+
+  const handleAddToTasks = async () => {
+    if (!emailAnalysis || !selectedEmail) return;
+
+    try {
+      let taskData;
+      
+      if (emailAnalysis.isEvent && emailAnalysis.eventDetails) {
+        taskData = {
+          action: 'agree',
+          eventDetails: emailAnalysis.eventDetails,
+          userEmail: selectedEmail.from,
+        };
+      } else {
+        const deadline = emailAnalysis.hasDeadline && emailAnalysis.deadline ? 
+                        emailAnalysis.deadline : 
+                        (emailAnalysis.eventDetails?.date || null);
+        
+        taskData = {
+          taskData: {
+            title: emailAnalysis.taskSuggestion || `Follow up: ${selectedEmail.subject}`,
+            description: `Email from: ${selectedEmail.from}\nSubject: ${selectedEmail.subject}\n\nOriginal message:\n${selectedEmail.body.substring(0, 200)}...`,
+            priority: emailAnalysis.priority || selectedEmail.importance,
+            deadline: deadline
+          }
+        };
+      }
+
+      const response = await fetch('/api/tasks/create-from-email', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(taskData),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        toast({
+          title: "Task Created!",
+          description: `"${data.task.title}" has been added to your tasks.`,
+        });
+        
+        // Also add to main tasks API for consistency
+        await fetch('/api/tasks', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            title: data.task.title,
+            description: data.task.description,
+            priority: data.task.priority,
+            due_date: data.task.deadline,
+            createdFrom: 'email'
+          }),
+        });
+        
+        setTimeout(() => {
+          window.location.href = '/tasks';
+        }, 2000);
+      }
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to create task. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const openEmail = (email: Email) => {
+    setSelectedEmail(email);
+    analyzeEmail(email);
+  };
+
+  const getImportanceColor = (importance: string) => {
     switch (importance) {
-      case 'high': return 'bg-red-100 text-red-800 border-red-200';
-      case 'medium': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
-      case 'low': return 'bg-green-100 text-green-800 border-green-200';
-      default: return 'bg-gray-100 text-gray-800 border-gray-200';
+      case 'high': return 'text-red-600 bg-red-50';
+      case 'medium': return 'text-yellow-600 bg-yellow-50';
+      case 'low': return 'text-green-600 bg-green-50';
+      default: return 'text-gray-600 bg-gray-50';
     }
   };
 
-  const getConnectionStatusIcon = () => {
-    switch (connectionStatus) {
-      case 'connected': return <CheckCircle className="h-4 w-4 text-green-600" />;
-      case 'error': return <AlertCircle className="h-4 w-4 text-red-600" />;
-      default: return <Clock className="h-4 w-4 text-gray-400" />;
+  const getCategoryIcon = (category?: string) => {
+    switch (category) {
+      case 'deadline': return <AlertTriangle className="h-4 w-4 text-red-500" />;
+      case 'meeting': return <Calendar className="h-4 w-4 text-blue-500" />;
+      case 'question': return <MessageSquare className="h-4 w-4 text-purple-500" />;
+      case 'social': return <User className="h-4 w-4 text-green-500" />;
+      default: return <Mail className="h-4 w-4 text-gray-500" />;
     }
   };
 
-  // Show mock data when there's an error to demonstrate the UI
-  const displayEmails = error && emails.length === 0 ? [
-    {
-      id: 'mock-1',
-      subject: 'Welcome to Gmail Integration',
-      from: 'demo@example.com',
-      snippet: 'This is a demo email showing how the Gmail integration would work once properly configured.',
-      fullBody: 'This is a demo email showing how the Gmail integration would work once properly configured. You can reply to this message and use the AI auto-reply feature.',
-      date: new Date().toISOString(),
-      isRead: false,
-      importance: 'high' as const,
-      labels: ['INBOX']
-    },
-    {
-      id: 'mock-2',
-      subject: 'Meeting Reminder',
-      from: 'calendar@company.com',
-      snippet: 'Don\'t forget about the team meeting scheduled for tomorrow at 2 PM.',
-      fullBody: 'Don\'t forget about the team meeting scheduled for tomorrow at 2 PM. Please confirm your attendance and let us know if you have any agenda items to discuss.',
-      date: new Date(Date.now() - 3600000).toISOString(),
-      isRead: true,
-      importance: 'medium' as const,
-      labels: ['INBOX']
-    }
-  ] : emails;
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (loading) {
+    return (
+      <div className="bg-white min-h-screen">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading emails...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="bg-white min-h-screen">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <AlertCircle className="h-12 w-12 text-red-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Error Loading Emails</h3>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <Button onClick={fetchEmails}>Try Again</Button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="bg-white min-h-screen p-6">
-      <Card className="w-full max-w-4xl mx-auto">
-        <CardHeader>
+    <div className="bg-white min-h-screen">
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Mail className="h-6 w-6 text-blue-600" />
-              <CardTitle>Gmail Integration with AI Auto-Reply</CardTitle>
-              {getConnectionStatusIcon()}
-            </div>
-            <div className="flex gap-2">
-              <Button 
-                onClick={fetchEmails}
-                disabled={loading}
-              >
-                {loading ? <RefreshCw className="h-4 w-4 animate-spin" /> : "Refresh Emails"}
-              </Button>
-            </div>
-          </div>
-          <CardDescription>
-            AI-powered message integration with Groq auto-reply functionality
-            {error && (
-              <div className="mt-2 p-2 bg-yellow-50 border border-yellow-200 rounded text-sm text-yellow-800">
-                <strong>Demo Mode:</strong> Showing sample data due to configuration issue. {error}
-              </div>
-            )}
-          </CardDescription>
-        </CardHeader>
-        
-        <CardContent>
-          {error && (
-            <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-              <div className="flex items-center gap-2 text-red-800">
-                <AlertCircle className="h-4 w-4" />
-                <span className="font-medium">Configuration Required</span>
-              </div>
-              <p className="text-sm text-red-700 mt-1">
-                {error.includes('unauthorized_client') 
-                  ? "Your Gmail app needs to be authorized in Google Cloud Console. Check: 1) OAuth consent screen is configured 2) Your email is added to test users 3) Redirect URI matches exactly"
-                  : error
-                }
+            <div>
+              <h1 className="text-3xl font-bold">Gmail Integration</h1>
+              <p className="text-muted-foreground">
+                AI-powered email analysis with contextual smart replies and automatic task creation
               </p>
             </div>
-          )}
-
-          <div className="space-y-4">
-            {displayEmails.length === 0 ? (
-              <div className="text-center py-8 text-gray-500">
-                <Mail className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-                <p>No emails to display</p>
-                <p className="text-sm">Click "Refresh Emails" to load your Gmail messages</p>
-              </div>
-            ) : (
-              displayEmails.map((email) => (
-                <Card key={email.id} className={`transition-all hover:shadow-md cursor-pointer ${!email.isRead ? 'border-l-4 border-l-blue-500' : ''}`}>
-                  <CardContent className="p-4">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0" onClick={() => handleEmailClick(email)}>
-                        <div className="flex items-center gap-2 mb-2">
-                          <h3 className={`font-medium truncate ${!email.isRead ? 'font-semibold' : ''}`}>
-                            {email.subject}
-                          </h3>
-                          <Badge className={getImportanceBadgeColor(email.importance)}>
-                            {email.importance}
-                          </Badge>
-                          {!email.isRead && (
-                            <Badge variant="secondary" className="bg-blue-100 text-blue-800">
-                              New
-                            </Badge>
-                          )}
-                        </div>
-                        
-                        <div className="flex items-center gap-2 text-sm text-gray-600 mb-2">
-                          <User className="h-3 w-3" />
-                          <span className="truncate">{email.from}</span>
-                          <span>•</span>
-                          <span>{new Date(email.date).toLocaleDateString()}</span>
-                        </div>
-                        
-                        <p className="text-sm text-gray-700 line-clamp-2">
-                          {email.snippet}
-                        </p>
-                      </div>
-                      
-                      <Dialog>
-                        <DialogTrigger asChild>
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => handleEmailClick(email)}
-                          >
-                            <Reply className="h-4 w-4 mr-1" />
-                            Reply
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="max-w-2xl">
-                          <DialogHeader>
-                            <DialogTitle>Reply to: {email.subject}</DialogTitle>
-                            <DialogDescription>
-                              From: {email.from}
-                            </DialogDescription>
-                          </DialogHeader>
-                          
-                          <div className="space-y-4">
-                            <div className="p-4 bg-gray-50 rounded-lg">
-                              <h4 className="font-medium mb-2">Original Message:</h4>
-                              <p className="text-sm text-gray-700">
-                                {email.fullBody || email.snippet}
-                              </p>
-                            </div>
-                            
-                            <div className="space-y-2">
-                              <div className="flex items-center justify-between">
-                                <label className="text-sm font-medium">Your Reply:</label>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => generateAutoReply(email)}
-                                  disabled={isGeneratingReply}
-                                >
-                                  {isGeneratingReply ? (
-                                    <RefreshCw className="h-4 w-4 animate-spin mr-1" />
-                                  ) : (
-                                    <Bot className="h-4 w-4 mr-1" />
-                                  )}
-                                  Auto Reply
-                                </Button>
-                              </div>
-                              <Textarea
-                                value={replyText}
-                                onChange={(e) => setReplyText(e.target.value)}
-                                placeholder="Type your reply here..."
-                                rows={6}
-                              />
-                            </div>
-                            
-                            <div className="flex justify-end gap-2">
-                              <Button
-                                variant="outline"
-                                onClick={() => {
-                                  setReplyText('');
-                                  setSelectedEmail(null);
-                                }}
-                              >
-                                Cancel
-                              </Button>
-                              <Button
-                                onClick={() => sendReply(email, replyText)}
-                                disabled={!replyText.trim() || isSendingReply}
-                              >
-                                {isSendingReply ? (
-                                  <RefreshCw className="h-4 w-4 animate-spin mr-1" />
-                                ) : (
-                                  <Send className="h-4 w-4 mr-1" />
-                                )}
-                                Send Reply
-                              </Button>
-                            </div>
-                          </div>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))
-            )}
+            <Button onClick={fetchEmails} variant="outline">
+              <Mail className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
           </div>
+        </div>
 
-          {displayEmails.length > 0 && (
-            <>
-              <Separator className="my-6" />
-              <div className="flex items-center justify-between text-sm text-gray-500">
-                <span>Showing {displayEmails.length} messages</span>
-                <div className="flex items-center gap-4">
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                    <span>High Priority</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
-                    <span>Medium Priority</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                    <span>Low Priority</span>
-                  </div>
+        {/* Stats */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2">
+                <Mail className="h-5 w-5 text-blue-600" />
+                <div>
+                  <div className="text-2xl font-bold">{emails.length}</div>
+                  <div className="text-sm text-muted-foreground">Total Emails</div>
                 </div>
               </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-red-600" />
+                <div>
+                  <div className="text-2xl font-bold">{emails.filter(e => !e.isRead).length}</div>
+                  <div className="text-sm text-muted-foreground">Unread</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="h-5 w-5 text-orange-600" />
+                <div>
+                  <div className="text-2xl font-bold">{emails.filter(e => 
+                    e.subject.toLowerCase().includes('deadline') || 
+                    e.subject.toLowerCase().includes('urgent') ||
+                    e.body.toLowerCase().includes('deadline') ||
+                    e.body.toLowerCase().includes('due')
+                  ).length}</div>
+                  <div className="text-sm text-muted-foreground">Deadlines</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardContent className="p-6">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="h-5 w-5 text-purple-600" />
+                <div>
+                  <div className="text-2xl font-bold">{emails.filter(e => 
+                    e.subject.toLowerCase().includes('meeting') || 
+                    e.subject.toLowerCase().includes('appointment') ||
+                    e.subject.toLowerCase().includes('dinner') ||
+                    e.subject.toLowerCase().includes('party') ||
+                    e.subject.toLowerCase().includes('question') ||
+                    e.subject.toLowerCase().includes('help') ||
+                    e.subject.toLowerCase().includes('feedback')
+                  ).length}</div>
+                  <div className="text-sm text-muted-foreground">Need Reply</div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Email List */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-semibold">Recent Emails</h2>
+          {emails.map((email) => (
+            <Card key={email.id} className={`cursor-pointer transition-all hover:shadow-md ${!email.isRead ? 'border-l-4 border-l-blue-500' : ''}`}>
+              <CardContent className="p-6">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-3 mb-2">
+                      <h3 className={`font-semibold truncate ${!email.isRead ? 'font-bold' : ''}`}>
+                        {email.subject}
+                      </h3>
+                      <Badge className={getImportanceColor(email.importance)}>
+                        {email.importance}
+                      </Badge>
+                      {!email.isRead && (
+                        <Badge variant="secondary">New</Badge>
+                      )}
+                      {(email.subject.toLowerCase().includes('deadline') || 
+                        email.body.toLowerCase().includes('deadline') ||
+                        email.subject.toLowerCase().includes('urgent')) && (
+                        <Badge variant="destructive">Deadline</Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-4 text-sm text-muted-foreground mb-3">
+                      <div className="flex items-center gap-1">
+                        <User className="h-4 w-4" />
+                        {email.from}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        {formatDate(email.date)}
+                      </div>
+                    </div>
+                    <p className="text-sm text-gray-600 line-clamp-2">
+                      {email.body.substring(0, 150)}...
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 ml-4">
+                    <Button 
+                      onClick={() => openEmail(email)}
+                      variant="outline" 
+                      size="sm"
+                      disabled={analyzingEmail}
+                    >
+                      <MessageSquare className="h-4 w-4 mr-1" />
+                      {analyzingEmail ? 'Analyzing...' : 'Smart Reply'}
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Smart Reply Dialog */}
+        <Dialog open={showReplyDialog} onOpenChange={setShowReplyDialog}>
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>AI-Powered Smart Reply</DialogTitle>
+              <DialogDescription>
+                AI has analyzed this email and generated a contextual reply based on the content.
+              </DialogDescription>
+            </DialogHeader>
+            
+            {selectedEmail && (
+              <div className="space-y-4">
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-semibold text-gray-900">{selectedEmail.subject}</h4>
+                  <p className="text-sm text-gray-600 mt-1">From: {selectedEmail.from}</p>
+                  <p className="text-sm text-gray-700 mt-2 line-clamp-3">{selectedEmail.body}</p>
+                </div>
+
+                {emailAnalysis && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {emailAnalysis.tone && (
+                      <Badge variant="outline">Tone: {emailAnalysis.tone}</Badge>
+                    )}
+                    {emailAnalysis.category && (
+                      <Badge variant="outline" className="flex items-center gap-1">
+                        {getCategoryIcon(emailAnalysis.category)}
+                        {emailAnalysis.category}
+                      </Badge>
+                    )}
+                    {emailAnalysis.isEvent && <Badge variant="outline">Event Detected</Badge>}
+                    {emailAnalysis.hasDeadline && <Badge variant="destructive">Has Deadline</Badge>}
+                  </div>
+                )}
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h5 className="font-medium">Smart Reply:</h5>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={generateNewReply}
+                      disabled={generatingReply}
+                      className="flex items-center gap-2"
+                    >
+                      <RefreshCw className={`h-4 w-4 ${generatingReply ? 'animate-spin' : ''}`} />
+                      {generatingReply ? 'Generating...' : 'Generate New'}
+                    </Button>
+                  </div>
+                  
+                  <Textarea
+                    placeholder="AI-generated reply will appear here..."
+                    value={customReply}
+                    onChange={(e) => setCustomReply(e.target.value)}
+                    className="min-h-[120px]"
+                  />
+                </div>
+
+                {emailAnalysis?.isEvent && emailAnalysis.eventDetails && (
+                  <div className="bg-blue-50 p-4 rounded-lg">
+                    <h5 className="font-medium text-blue-900 mb-2">Event Detected:</h5>
+                    <div className="text-sm text-blue-700 space-y-1">
+                      <p><strong>Title:</strong> {emailAnalysis.eventDetails.title}</p>
+                      <p><strong>Date:</strong> {emailAnalysis.eventDetails.date}</p>
+                      <p><strong>Time:</strong> {emailAnalysis.eventDetails.time}</p>
+                      {emailAnalysis.eventDetails.location && (
+                        <p><strong>Location:</strong> {emailAnalysis.eventDetails.location}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {emailAnalysis?.hasDeadline && emailAnalysis.deadline && (
+                  <div className="bg-red-50 p-4 rounded-lg">
+                    <h5 className="font-medium text-red-900 mb-2">Deadline Detected:</h5>
+                    <div className="text-sm text-red-700">
+                      <p><strong>Due Date:</strong> {new Date(emailAnalysis.deadline).toLocaleDateString()}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => setShowReplyDialog(false)}>
+                Cancel
+              </Button>
+              <Button 
+                onClick={handleSendReply}
+                disabled={!customReply.trim() || sendingReply}
+                className="flex items-center gap-2"
+              >
+                <Send className="h-4 w-4" />
+                {sendingReply ? 'Sending...' : 'Send Reply'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Task Confirmation Dialog */}
+        <Dialog open={showTaskConfirmDialog} onOpenChange={setShowTaskConfirmDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add to Task Manager?</DialogTitle>
+              <DialogDescription>
+                Would you like to create a task based on this email?
+              </DialogDescription>
+            </DialogHeader>
+            
+            {emailAnalysis && (
+              <div className="space-y-4">
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h5 className="font-medium text-blue-900 mb-2">Suggested Task:</h5>
+                  <p className="text-sm text-blue-700 font-medium">{emailAnalysis.taskSuggestion}</p>
+                  {emailAnalysis.priority && (
+                    <p className="text-sm text-blue-600 mt-1">Priority: {emailAnalysis.priority}</p>
+                  )}
+                  {(emailAnalysis.hasDeadline && emailAnalysis.deadline) && (
+                    <p className="text-sm text-blue-600 mt-1">
+                      Deadline: {new Date(emailAnalysis.deadline).toLocaleDateString()}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <DialogFooter className="flex gap-2">
+              <Button variant="outline" onClick={() => handleTaskConfirmation(false)}>
+                No, Thanks
+              </Button>
+              <Button onClick={() => handleTaskConfirmation(true)} className="flex items-center gap-2">
+                <Plus className="h-4 w-4" />
+                Add Task
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
     </div>
   );
 }

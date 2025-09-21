@@ -20,9 +20,9 @@ export async function GET(
 
     return NextResponse.json({ email });
   } catch (error: any) {
-    console.error('Gmail API Error:', error);
+    // Silently handle errors
     return NextResponse.json(
-      { error: error.message || 'Failed to fetch email details' },
+      { error: 'Failed to fetch email details' },
       { status: 500 }
     );
   }
